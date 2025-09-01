@@ -161,7 +161,7 @@ static void jsh_loadfile_zip(js_State *J, const char *fname) {
  * @param script the script filename.
  * @param debug enable debug output.
  */
-static void run_script(char *script, bool debug, int argc, char *argv[], int idx) {
+static int run_script(char *script, bool debug, int argc, char *argv[], int idx) {
     js_State *J;
     // create logfile
     if (logfile_name) {
@@ -227,13 +227,16 @@ static void run_script(char *script, bool debug, int argc, char *argv[], int idx
         fclose(logfile);
     }
 
+    int ret = 0;
     if (lastError) {
         fputs(lastError, stdout);
         fputs("\njSH ERROR\n", stdout);
+        ret = 1;
     } else {
-        fputs("jSH OK\n", stdout);
+        // fputs("jSH OK\n", stdout);
     }
     fflush(stdout);
+    return ret;
 }
 
 /***********************
@@ -416,8 +419,9 @@ int main(int argc, char **argv) {
     }
 
     pctimer_init(1000 / SYSTICK_RESOLUTION);
-    run_script(script, debug, argc, argv, optind);
+    int ret = run_script(script, debug, argc, argv, optind);
     pctimer_exit();
 
-    exit(0);
+    exit(ret);
+    return ret;
 }
