@@ -26,23 +26,37 @@ LIB_CURL	= $(CURL)/libcurl.a
 
 # compiler
 CDEF		= -DGC_BEFORE_MALLOC #-DDEBUG_ENABLED #-DMEMDEBUG 
+ifdef NOTCP
+	CDEF += -DNOTCP
+endif
 CFLAGS		= -MMD -Wall -std=gnu99 -Os -march=i386 -mtune=i586 -ffast-math $(INCLUDES) -fgnu89-inline -Wmissing-prototypes $(CDEF)
 INCLUDES	= \
 	-I$(realpath $(MUJS)) \
 	-I$(realpath $(DZCOMMDIR))/include \
-	-I$(realpath $(WATT32))/inc \
 	-I$(realpath $(KUBAZIP))/src \
 	-I$(realpath $(ZLIB)) \
-	-I$(realpath $(MBEDTLS))/include \
-	-I$(realpath $(MBEDTLS))/library \
-	-I$(realpath $(CURL))/include \
 	-I$(realpath $(PCTIMER)) \
-	-I$(realpath $(INI))/ \
-	-I$(realpath ./src/)
+	-I$(realpath $(INI))/
+
+ifndef NOTCP
+	INCLUDES += \
+		-I$(realpath $(WATT32))/inc \
+		-I$(realpath $(MBEDTLS))/include \
+		-I$(realpath $(MBEDTLS))/library \
+		-I$(realpath $(CURL))/include
+endif
+
+INCLUDES += -I$(realpath ./src/)
 
 # linker
-LIBS		= -lmujs -lm -lemu -ldzcom -lwatt
-LDFLAGS		= -L$(MUJS)/build/release -L$(DZCOMMDIR)/lib/djgpp -L$(WATT32)/lib
+LIBS		= -lmujs -lm -lemu -ldzcom
+ifndef NOTCP
+	LIBS += -lwatt
+endif
+LDFLAGS		= -L$(MUJS)/build/release -L$(DZCOMMDIR)/lib/djgpp
+ifndef NOTCP
+	LDFLAGS		+= -L$(WATT32)/lib
+endif
 
 # output
 EXE				= JSH.EXE
@@ -96,7 +110,6 @@ PARTS= \
 	$(BUILDDIR)/funcs.o \
 	$(BUILDDIR)/jsconio.o \
 	$(BUILDDIR)/zipfile.o \
-	$(BUILDDIR)/watt.o \
 	$(BUILDDIR)/socket.o \
 	$(BUILDDIR)/lowlevel.o \
 	$(BUILDDIR)/jSH.o \
@@ -107,10 +120,26 @@ PARTS= \
 	$(BUILDDIR)/inifile.o \
 	$(BUILDDIR)/ini/ini.o \
 	$(BUILDDIR)/dexport.o
+ifndef NOTCP
+	PARTS += $(BUILDDIR)/watt.o
+endif
 
 DXE_DIRS := $(wildcard plugins/*.dxelib)
 
-all: init libmujs dzcomm libwatt32 libz libcurl $(EXE) $(DXE_DIRS) JSBOOT.ZIP
+TCP_TARGETS := libwatt32 libcurl
+TCP_CLEAN_TARGETS := wattclean mbedtlsclean curlclean
+
+ifdef NOTCP
+	DXE_DIRS := $(filter-out \
+		plugins/genpdf.dxelib \
+		plugins/curl.dxelib \
+		plugins/ipx.dxelib \
+		plugins/neural.dxelib \
+		plugins/sqlite.dxelib, $(DXE_DIRS))
+	TCP_TARGETS :=
+	TCP_CLEAN_TARGETS :=
+endif
+all: init libmujs dzcomm libz $(TCP_TARGETS) $(EXE) $(DXE_DIRS) JSBOOT.ZIP
 
 dzcomm: $(LIB_DZCOMM)
 $(LIB_DZCOMM):
@@ -155,7 +184,7 @@ $(BUILDDIR)/ini/%.o: $(INI)/%.c Makefile
 $(DXE_DIRS):
 	$(MAKE) -C $@
 
-$(DXE_EXPORTS): dxetemplate.txt $(MUJS)/mujs.h
+$(DXE_EXPORTS): extract_functions.py dxetemplate.txt $(MUJS)/mujs.h
 	$(PYTHONPRG) ./extract_functions.py $(DXE_TEMPLATE) $(MUJS)/mujs.h $@
 
 JSBOOT.ZIP: $(shell find jsboot/ -type f)
@@ -185,7 +214,7 @@ clean:
 		$(MAKE) -C $$dir -f Makefile $@; \
 	done
 
-distclean: clean jsclean dzclean wattclean dxeclean muclean zclean mbedtlsclean curlclean
+distclean: clean jsclean dzclean dxeclean muclean zclean $(TCP_CLEAN_TARGETS)
 	$(RMPRG) -rf $(DOCDIR) TEST.TXT JSLOG.TXT *.dxe
 
 dzclean:

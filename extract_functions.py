@@ -14,14 +14,20 @@ with open(sys.argv[1], "r") as template:
             exports = []
             prototypes = []
             includes = []
+            last = includes
             for l in template:
                 l = l.strip()
-                if l.startswith("#"):
+                if l.startswith("#if") or l.startswith("#el") or l.startswith("#end"):
+                    last.append(l)
+                elif l.startswith("#"):
                     includes.append(l)
+                    last = includes
                 elif l.startswith("extern "):
                     prototypes.append(l)
+                    last = prototypes
                 elif not l.startswith("//") and len(l) > 0:
                     exports.append(l)
+                    last = exports
 
             # write header
             outfile.write(
@@ -59,7 +65,10 @@ DXE_EXPORT_TABLE_AUTO(symtab)
 
             # write all exports
             for e in exports:
-                outfile.write("  DXE_EXPORT({})".format(e))
+                if e.startswith('#'):
+                    outfile.write("  {}".format(e))
+                else:
+                    outfile.write("  DXE_EXPORT({})".format(e))
                 outfile.write("\n")
 
             # write js_ functions from include

@@ -8,7 +8,9 @@
 #include <go32.h>
 #include <io.h>
 #include <math.h>
+#ifndef NOTCP
 #include <netdb.h>
+#endif
 #include <pc.h>
 #include <signal.h>
 #include <stdio.h>
@@ -18,7 +20,9 @@
 #include <sys/farptr.h>
 #include <sys/movedata.h>
 #include <sys/stat.h>
+#ifndef NOTCP
 #include <tcp.h>
+#endif
 #include <termios.h>
 #include <time.h>
 #include <unistd.h>
@@ -33,7 +37,9 @@
 #include "gccint8.h"
 
 // symbols without include file from libgcc
+#ifndef NOTCP
 extern BOOL _watt_do_exit;
+#endif
 extern long __divdi3 (long A, long B);
 extern long __moddi3 (long A, long B);
 extern unsigned long __udivdi3 (unsigned long A, unsigned long B);
@@ -157,7 +163,9 @@ __udivmoddi4
 __umoddi3
 access
 close
+#ifndef NOTCP
 errno
+#endif
 fchmod
 fchown
 fcntl
@@ -182,7 +190,9 @@ strlen
 strncmp
 strrchr
 time
+#ifndef NOTCP
 utimes
+#endif
 write
 memset
 fstat
@@ -207,6 +217,7 @@ IntArray_destroy
 IntArray_fromStruct
 IntArray_push
 
+#ifndef NOTCP
 // watt32
 _w32_inet_pton
 _watt_do_exit
@@ -272,6 +283,7 @@ _osminor
 close_s
 gmtime
 delay
+#endif
 
 ut_clone_string
 ByteArray_create

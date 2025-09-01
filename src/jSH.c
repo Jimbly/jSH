@@ -30,7 +30,9 @@ SOFTWARE.
 #include <dlfcn.h>
 
 #include "lowlevel.h"
+#ifndef NOTCP
 #include "watt.h"
+#endif
 #include "socket.h"
 #include "zipfile.h"
 #include "file.h"
@@ -54,7 +56,11 @@ const char *lastError;
 
 library_t *jsh_loaded_libraries = NULL;
 
+#ifdef NOTCP
+bool no_tcpip = true;
+#else
 bool no_tcpip = false;
+#endif
 
 /*********************
 ** static functions **
@@ -189,8 +195,12 @@ static int run_script(char *script, bool debug, int argc, char *argv[], int idx)
     init_file(J);
     init_conio(J);
     init_lowlevel(J);
-    init_watt(J);
-    init_socket(J);
+    if (!no_tcpip) {
+        #ifndef NOTCP
+        init_watt(J);
+        init_socket(J);
+        #endif
+    }
     init_zipfile(J);
     init_intarray(J);
     init_bytearray(J);
@@ -204,13 +214,17 @@ static int run_script(char *script, bool debug, int argc, char *argv[], int idx)
         PROPDEF_S(J, JSBOOT_ZIP ZIP_DELIM_STR JSBOOT_DIR, JSBOOT_VAR);
         jsh_do_file(J, JSBOOT_ZIP ZIP_DELIM_STR JSINC_FUNC);
         jsh_do_file(J, JSBOOT_ZIP ZIP_DELIM_STR JSINC_FILE);
-        jsh_do_file(J, JSBOOT_ZIP ZIP_DELIM_STR JSINC_SOCKET);
+        if (!no_tcpip) {
+            jsh_do_file(J, JSBOOT_ZIP ZIP_DELIM_STR JSINC_SOCKET);
+        }
     } else {
         DEBUG("JSBOOT.ZIP NOT found, using plain files\n");
         PROPDEF_S(J, JSBOOT_DIR, JSBOOT_VAR);
         jsh_do_file(J, JSINC_FUNC);
         jsh_do_file(J, JSINC_FILE);
-        jsh_do_file(J, JSINC_SOCKET);
+        if (!no_tcpip) {
+            jsh_do_file(J, JSINC_SOCKET);
+        }
     }
 
     // overwrites DEBUG property from func.js

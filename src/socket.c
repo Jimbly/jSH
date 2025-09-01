@@ -24,6 +24,7 @@ SOFTWARE.
 
 #include "socket.h"
 
+#ifndef NOTCP
 #include "watt.h"
 #include "bytearray.h"
 
@@ -630,6 +631,7 @@ static void Socket_ReadInts(js_State *J) {
     }
     free(buff);
 }
+#endif
 
 /***********************
 ** exported functions **
@@ -640,6 +642,7 @@ static void Socket_ReadInts(js_State *J) {
  * @param J VM state.
  */
 void init_socket(js_State *J) {
+    #ifndef NOTCP
     DEBUGF("%s\n", __PRETTY_FUNCTION__);
 
     if (!no_tcpip) {
@@ -671,10 +674,13 @@ void init_socket(js_State *J) {
     }
 
     DEBUGF("%s DONE\n", __PRETTY_FUNCTION__);
+    #endif
 }
 
 void tick_socket() {
+    #ifndef NOTCP
     if (socket_count > 0) {
         tcp_tick(NULL);
     }
+    #endif
 }
