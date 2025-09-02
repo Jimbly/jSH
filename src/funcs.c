@@ -20,83 +20,52 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 */
 
+#include "funcs.h"
+
 #include <dirent.h>
-#include <dos.h>
-#include <dpmi.h>
-#include <errno.h>
+//#include <dpmi.h>
+//#include <errno.h>
 #include <mujs.h>
-#include <pc.h>
+//#include <pc.h>
 #include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
+//#include <stdlib.h>
+//#include <string.h>
 #include <sys/stat.h>
 #include <time.h>
-#include <unistd.h>
-
-#include <sys/dxe.h>
+//#include <unistd.h>
+#if WINDOWS != 1
 #include <dlfcn.h>
-#include <sys/exceptn.h>
-#include <fcntl.h>
+#endif
+#if WINDOWS == 1
+#include <timeapi.h>
+#endif
 
+//#include <sys/exceptn.h>
+//#include <fcntl.h>
+#include "util.h"
+#include "socket.h"
 #include "zipfile.h"
-
-#include "funcs.h"
-#include "jSH.h"
+#if LINUX != 1
 #include "gccint8.h"
-
+#endif
 #include "jsi.h"
 #include "jsparse.h"
 #include "jscompile.h"
+
+#if LINUX == 1
+#if WINDOWS !=1
+#include <sys/sysinfo.h>
+#endif
+#else
+#include <sys/dxe.h>
+#include <dos.h>
+#endif
 
 #define LL_BUFFER_SIZE 2014
 
 /*********************
 ** static functions **
 *********************/
-/**
- * @brief convert time_t into something like a javascript time string.
- *
- * @param t the time_t
- *
- * @return char* pointer to a static buffer with the conversion result.
- */
-static char *f_formatTime(time_t *t) {
-    static char buf[100];
-    struct tm *tm = localtime(t);
-    strftime(buf, sizeof(buf), "%Y-%m-%dT%H:%M:%S.000", tm);
-    return buf;
-}
-
-static void *dxe_res(const char *symname) {
-    LOGF("%s: undefined symbol in dynamic module\n", symname);
-    return NULL;
-}
-
-/**
- * @brief Check if a directory exists.
- * DirExists(dname:string):bool
- *
- * @param J the JS context.
- */
-static void f_DirExists(js_State *J) {
-    const char *dirname = js_tostring(J, 1);
-    DIR *dir = opendir(dirname);
-    if (!dir) {
-        js_pushboolean(J, false);
-    } else {
-        closedir(dir);
-        js_pushboolean(J, true);
-    }
-}
-
-/**
- * @brief Check if a file exists.
- * FileExists(fname:string):bool
- *
- * @param J the JS context.
- */
-static void f_FileExists(js_State *J) { js_pushboolean(J, ut_file_exists(js_tostring(J, 1))); }
-
 /**
  * @brief read a whole file as string.
  * Read(fname:string):string
@@ -165,48 +134,47 @@ static void f_List(js_State *J) {
 }
 
 /**
- * @brief file/directory info.
- * Stat(name:string):{}
+ * @brief Check if a directory exists.
+ * DirExists(dname:string):bool
  *
  * @param J the JS context.
  */
-static void f_Stat(js_State *J) {
-    const char *name = js_tostring(J, 1);
+static void f_DirExists(js_State *J) {
+    const char *dirname = js_tostring(J, 1);
+    DIR *dir = opendir(dirname);
+    if (!dir) {
+        js_pushboolean(J, false);
+    } else {
+        closedir(dir);
+        js_pushboolean(J, true);
+    }
+}
 
-    struct stat s;
-    if (stat(name, &s) != 0) {
-        js_error(J, "Cannot stat '%s': %s", name, strerror(errno));
+/**
+ * @brief Check if a file exists.
+ * FileExists(fname:string):bool
+ *
+ * @param J the JS context.
+ */
+static void f_FileExists(js_State *J) { js_pushboolean(J, ut_file_exists(js_tostring(J, 1))); }
+
+/**
+ * @brief RmFile(name:string)
+ *
+ * @param J the JS context.
+ */
+static void f_RmFile(js_State *J) {
+    const char *file = js_tostring(J, 1);
+
+    if (!file) {
+        js_error(J, "No filename");
         return;
     }
 
-    char *drive = "A:";
-    drive[0] += s.st_dev;
-
-    js_newobject(J);
-    {
-        js_pushstring(J, drive);
-        js_setproperty(J, -2, "drive");
-        js_pushstring(J, f_formatTime(&s.st_atime));
-        js_setproperty(J, -2, "atime");
-        js_pushstring(J, f_formatTime(&s.st_ctime));
-        js_setproperty(J, -2, "ctime");
-        js_pushstring(J, f_formatTime(&s.st_mtime));
-        js_setproperty(J, -2, "mtime");
-        js_pushnumber(J, s.st_size);
-        js_setproperty(J, -2, "size");
-        js_pushnumber(J, s.st_blksize);
-        js_setproperty(J, -2, "blksize");
-        js_pushnumber(J, s.st_nlink);
-        js_setproperty(J, -2, "nlink");
-
-        js_pushboolean(J, S_ISREG(s.st_mode));
-        js_setproperty(J, -2, "is_regular");
-        js_pushboolean(J, S_ISDIR(s.st_mode));
-        js_setproperty(J, -2, "is_directory");
-        js_pushboolean(J, S_ISCHR(s.st_mode));
-        js_setproperty(J, -2, "is_chardev");
-        js_pushboolean(J, S_ISBLK(s.st_mode));
-        js_setproperty(J, -2, "is_blockdev");
+    int ret = unlink(file);
+    if (ret != 0) {
+        js_error(J, "Could not delete file: %s", strerror(errno));
+        return;
     }
 }
 
@@ -231,21 +199,25 @@ static void f_RmDir(js_State *J) {
 }
 
 /**
- * @brief RmFile(name:string)
+ * @brief MakeDir(name:string)
  *
  * @param J the JS context.
  */
-static void f_RmFile(js_State *J) {
-    const char *file = js_tostring(J, 1);
+static void f_MakeDir(js_State *J) {
+    const char *dir = js_tostring(J, 1);
 
-    if (!file) {
-        js_error(J, "No filename");
+    if (!dir) {
+        js_error(J, "No dirname");
         return;
     }
 
-    int ret = unlink(file);
+#if WINDOWS == 1
+    int ret = _mkdir(dir);
+#else
+    int ret = mkdir(dir, 0);
+#endif
     if (ret != 0) {
-        js_error(J, "Could not delete file: %s", strerror(errno));
+        js_error(J, "Could not create directory: %s", strerror(errno));
         return;
     }
 }
@@ -277,89 +249,71 @@ static void f_Rename(js_State *J) {
 }
 
 /**
- * @brief MakeDir(name:string)
+ * @brief convert time_t into something like a javascript time string.
+ *
+ * @param t the time_t
+ *
+ * @return char* pointer to a static buffer with the conversion result.
+ */
+static char *f_formatTime(time_t *t) {
+    static char buf[100];
+    struct tm *tm = localtime(t);
+    strftime(buf, sizeof(buf), "%Y-%m-%dT%H:%M:%S.000", tm);
+    return buf;
+}
+
+/**
+ * @brief file/directory info.
+ * Stat(name:string):{}
  *
  * @param J the JS context.
  */
-static void f_MakeDir(js_State *J) {
-    const char *dir = js_tostring(J, 1);
+static void f_Stat(js_State *J) {
+    const char *name = js_tostring(J, 1);
 
-    if (!dir) {
-        js_error(J, "No dirname");
+    struct stat s;
+    if (stat(name, &s) != 0) {
+        js_error(J, "Cannot stat '%s': %s", name, strerror(errno));
         return;
     }
 
-    int ret = mkdir(dir, 0);
-    if (ret != 0) {
-        js_error(J, "Could not create directory: %s", strerror(errno));
-        return;
+#if LINUX == 1
+    char *drive = "/";
+#else
+    char *drive = "A:";
+    drive[0] += s.st_dev;
+#endif
+
+    js_newobject(J);
+    {
+        js_pushstring(J, drive);
+        js_setproperty(J, -2, "drive");
+        js_pushstring(J, f_formatTime(&s.st_atime));
+        js_setproperty(J, -2, "atime");
+        js_pushstring(J, f_formatTime(&s.st_ctime));
+        js_setproperty(J, -2, "ctime");
+        js_pushstring(J, f_formatTime(&s.st_mtime));
+        js_setproperty(J, -2, "mtime");
+        js_pushnumber(J, s.st_size);
+        js_setproperty(J, -2, "size");
+#if WINDOWS == 1
+        js_pushnumber(J, 0);
+#else
+        js_pushnumber(J, s.st_blksize);
+#endif
+        js_setproperty(J, -2, "blksize");
+        js_pushnumber(J, s.st_nlink);
+        js_setproperty(J, -2, "nlink");
+
+        js_pushboolean(J, S_ISREG(s.st_mode));
+        js_setproperty(J, -2, "is_regular");
+        js_pushboolean(J, S_ISDIR(s.st_mode));
+        js_setproperty(J, -2, "is_directory");
+        js_pushboolean(J, S_ISCHR(s.st_mode));
+        js_setproperty(J, -2, "is_chardev");
+        js_pushboolean(J, S_ISBLK(s.st_mode));
+        js_setproperty(J, -2, "is_blockdev");
     }
-}
-
-/**
- * @brief call external program.
- * System(cmd:string):number
- *
- * @param J the JS context.
- */
-static void f_System(js_State *J) {
-    const char *cmd = js_tostring(J, 1);
-
-    int ret = system(cmd);
-
-    js_pushnumber(J, ret);
-}
-
-/**
- * @brief call INT21, ah=19, GetDrive()
- *
- * @param J VM state.
- */
-static void f_GetDrive(js_State *J) {
-    unsigned int drive;
-    _dos_getdrive(&drive);
-    js_pushnumber(J, drive);
-}
-
-/**
- * @brief call INT21, ah=0E, SetDrive()
- *
- * @param J VM state.
- */
-static void f_SetDrive(js_State *J) {
-    unsigned int num_drives;
-    _dos_setdrive(js_touint16(J, 1), &num_drives);
-    js_pushnumber(J, num_drives);
-}
-
-/**
- * @brief canonicalizes the input path
- *
- * @param J VM state.
- */
-static void f_RealPath(js_State *J) {
-    char newpath[PATH_MAX];
-    realpath(js_tostring(J, 1), newpath);
-    js_pushstring(J, newpath);
-}
-
-/**
- * @brief print to stdout.
- * Print(t1, t2, ...)
- *
- * @param J the JS context.
- */
-static void f_Print(js_State *J) {
-    int i, top = js_gettop(J);
-    for (i = 1; i < top; ++i) {
-        const char *s = js_tostring(J, i);
-        if (i > 1) {
-            putc(' ', stdout);
-        }
-        fputs(s, stdout);
-    }
-    fflush(stdout);
-    js_pushundefined(J);
 }
 
 /**
@@ -369,17 +323,75 @@ static void f_Print(js_State *J) {
  * @param J the JS context.
  */
 static void f_Println(js_State *J) {
+    if (LOGSTREAM) {
+        int i, top = js_gettop(J);
+        for (i = 1; i < top; ++i) {
+            const char *s = js_tostring(J, i);
+            if (i > 1) {
+                putc(' ', LOGSTREAM);
+            }
+            fputs(s, LOGSTREAM);
+        }
+        putc('\n', LOGSTREAM);
+    }
+#if LINUX == 1
     int i, top = js_gettop(J);
     for (i = 1; i < top; ++i) {
         const char *s = js_tostring(J, i);
         if (i > 1) {
-            putc(' ', stdout);
+            putchar(' ');
         }
-        fputs(s, stdout);
+        puts(s);
     }
-    putc('\n', stdout);
-    fflush(stdout);
+#endif
     js_pushundefined(J);
+}
+
+/**
+ * @brief print to stdout.
+ * Print(t1, t2, ...)
+ *
+ * @param J the JS context.
+ */
+static void f_Print(js_State *J) {
+    if (LOGSTREAM) {
+        int i, top = js_gettop(J);
+        for (i = 1; i < top; ++i) {
+            const char *s = js_tostring(J, i);
+            if (i > 1) {
+                putc(' ', LOGSTREAM);
+            }
+            fputs(s, LOGSTREAM);
+        }
+    }
+#if LINUX == 1
+    int i, top = js_gettop(J);
+    for (i = 1; i < top; ++i) {
+        const char *s = js_tostring(J, i);
+        if (i > 1) {
+            putchar(' ');
+        }
+        puts(s);
+    }
+#endif
+    js_pushundefined(J);
+}
+
+/**
+ * @brief quit jSH.
+ * Quit()
+ *
+ * @param J the JS context.
+ */
+static void f_Quit(js_State *J) {
+    int code = 0;
+    if (js_isnumber(J, 1)) {
+        code = js_touint16(J, 1);
+    }
+	#if LINUX != 1
+    pctimer_exit();
+	#endif
+    exit(code);
 }
 
 /**
@@ -400,6 +412,30 @@ static void f_Gc(js_State *J) {
  * @param J the JS context.
  */
 static void f_MemoryInfo(js_State *J) {
+#if WINDOWS == 1
+    MEMORYSTATUS memstat;
+
+    js_newobject(J);
+    {
+        GlobalMemoryStatus(&memstat);
+        js_pushnumber(J, memstat.dwTotalPhys);
+        js_setproperty(J, -2, "total");
+        js_pushnumber(J, memstat.dwAvailPhys);
+        js_setproperty(J, -2, "remaining");
+    }
+#elif LINUX == 1
+    struct sysinfo info;
+
+    js_newobject(J);
+    {
+        if (sysinfo(&info) == 0) {
+            js_pushnumber(J, info.totalram);
+            js_setproperty(J, -2, "total");
+            js_pushnumber(J, info.freeram);
+            js_setproperty(J, -2, "remaining");
+        }
+    }
+#else
     _go32_dpmi_meminfo info;
 
     js_newobject(J);
@@ -411,6 +447,7 @@ static void f_MemoryInfo(js_State *J) {
             js_setproperty(J, -2, "remaining");
         }
     }
+#endif
 }
 
 /**
@@ -419,7 +456,14 @@ static void f_MemoryInfo(js_State *J) {
  *
  * @param J the JS context.
  */
-static void f_Sleep(js_State *J) { pctimer_sleep(js_toint32(J, 1)); }
+static void f_Sleep(js_State *J) {
+    int ms = js_toint32(J, 1);
+    #if LINUX == 1
+    Sleep(ms);
+    #else
+    pctimer_sleep(ms);
+    #endif
+}
 
 /**
  * @brief get current time in ms.
@@ -427,24 +471,74 @@ static void f_Sleep(js_State *J) { pctimer_sleep(js_toint32(J, 1)); }
  *
  * @param J the JS context.
  */
-static void f_MsecTime(js_State *J) { js_pushnumber(J, pctimer_get_ticks() * (1000 / SYSTICK_RESOLUTION)); }
+static void f_MsecTime(js_State *J) {
+    #if WINDOWS == 1
+    js_pushnumber(J, timeGetTime());
+    #else
+    js_pushnumber(J, pctimer_get_ticks() * (1000 / SYSTICK_RESOLUTION));
+    #endif
+}
 
 /**
- * convert string to byte array.
- * StringToBytes(string):number[]
+ * @brief call external program.
+ * System(cmd:string):number
  *
- * @param J VM state.
+ * @param J the JS context.
  */
-static void f_StringToBytes(js_State *J) {
-    const char *data = js_tostring(J, 1);
-    js_newarray(J);
+static void f_System(js_State *J) {
+    const char *cmd = js_tostring(J, 1);
 
-    int idx = 0;
-    while (data[idx]) {
-        js_pushnumber(J, data[idx]);
-        js_setindex(J, -2, idx);
-        idx++;
+    #ifdef DOJS
+    int flags = js_touint16(J, 2);
+
+    if (flags & SYS_FLAG_MOUSE) {
+        remove_mouse();
     }
+
+    if (flags & SYS_FLAG_SOUND) {
+        remove_sound_input();
+        remove_sound();
+    }
+
+    if (flags & SYS_FLAG_JOYSTICK) {
+        install_joystick(JOY_TYPE_AUTODETECT);
+    }
+
+    if (flags & SYS_FLAG_KEYBOARD) {
+        remove_keyboard();
+    }
+
+    if (flags & SYS_FLAG_TIMER) {
+        remove_timer();
+    }
+    #endif
+
+    int ret = system(cmd);
+
+    #ifdef DOJS
+    if (flags & SYS_FLAG_TIMER) {
+        install_timer();
+    }
+
+    if (flags & SYS_FLAG_KEYBOARD) {
+        install_keyboard();
+    }
+
+    if (flags & SYS_FLAG_JOYSTICK) {
+        install_joystick(JOY_TYPE_AUTODETECT);
+    }
+
+    if (flags & SYS_FLAG_SOUND) {
+        install_sound(DOjS.params.no_sound ? DIGI_NONE : DIGI_AUTODETECT, DOjS.params.no_fm ? MIDI_NONE : MIDI_AUTODETECT, NULL);
+        install_sound_input(DOjS.params.no_sound ? DIGI_NONE : DIGI_AUTODETECT, DOjS.params.no_fm ? MIDI_NONE : MIDI_AUTODETECT);
+    }
+
+    if (flags & SYS_FLAG_MOUSE) {
+        install_mouse();
+    }
+    #endif
+
+    js_pushnumber(J, ret);
 }
 
 /**
@@ -478,11 +572,29 @@ static void f_BytesToString(js_State *J) {
 }
 
 /**
+ * convert string to byte array.
+ * StringToBytes(string):number[]
+ *
+ * @param J VM state.
+ */
+static void f_StringToBytes(js_State *J) {
+    const char *data = js_tostring(J, 1);
+    js_newarray(J);
+
+    int idx = 0;
+    while (data[idx]) {
+        js_pushnumber(J, data[idx]);
+        js_setindex(J, -2, idx);
+        idx++;
+    }
+}
+
+/**
  * @brief parse string and run it as function.
  * This works like Function(), but it only takes one parameter and the source of the parsed string can be provided.
  * NamedFunction(func_param, func_src, func_source_filename):function
  *
- * @param J VM state.
+ * @param J
  */
 static void f_NamedFunction(js_State *J) {
     js_Buffer *sb = NULL;
@@ -514,22 +626,19 @@ static void f_NamedFunction(js_State *J) {
     js_newfunction(J, fun, J->GE);
 }
 
+#if LINUX != 1
 /**
- * @brief get environment variable
+ * @brief callback function when a symbol can't be found during library loading.
+ * This does reporting only and will not provide a fallback implementation.
  *
- * @param J VM state.
+ * @param symname name of the missing function
+ * @return void* allways NULL.
  */
-static void f_GetEnv(js_State *J) {
-    const char *var = js_tostring(J, 1);
-
-    const char *val = getenv(var);
-
-    if (val) {
-        js_pushstring(J, val);
-    } else {
-        js_pushnull(J);
-    }
+static void *dxe_res(const char *symname) {
+    LOGF("%s: undefined symbol in dynamic module\n", symname);
+    return NULL;
 }
+#endif
 
 /**
  * get drive space info
@@ -538,9 +647,19 @@ static void f_GetEnv(js_State *J) {
  * @param J VM state.
  */
 static void f_FreeSpace(js_State *J) {
+#if LINUX == 1
+    LOGF("FreeSpace: Not implemented\n");
+    struct {
+        int df_avail;
+        int df_total;
+        int df_bsec;
+        int df_sclus;
+    } d = {0};
+#else
     int dr = js_toint16(J, 1);
     struct dfree d;
     getdfree(dr, &d);
+#endif
 
     js_newobject(J);
     {
@@ -562,6 +681,10 @@ static void f_FreeSpace(js_State *J) {
  * @param J VM state.
  */
 static void f_IsFixed(js_State *J) {
+#if LINUX == 1
+    js_error(J, "Can't determine drive type.");
+#else
+
     int dr = js_toint16(J, 1);
 
     int type = _media_type(dr);
@@ -577,6 +700,7 @@ static void f_IsFixed(js_State *J) {
             js_error(J, "Can't determine drive type.");
             break;
     }
+#endif
 }
 
 /**
@@ -586,6 +710,9 @@ static void f_IsFixed(js_State *J) {
  * @param J VM state.
  */
 static void f_IsCDROM(js_State *J) {
+#if LINUX == 1
+    js_error(J, "Can't determine drive type.");
+#else
     int dr = js_toint16(J, 1);
 
     int type = _is_cdrom_drive(dr);
@@ -601,6 +728,7 @@ static void f_IsCDROM(js_State *J) {
             js_error(J, "Can't determine drive type.");
             break;
     }
+#endif
 }
 
 /**
@@ -610,6 +738,9 @@ static void f_IsCDROM(js_State *J) {
  * @param J VM state.
  */
 static void f_IsFAT32(js_State *J) {
+#if LINUX == 1
+    js_error(J, "Can't determine drive type.");
+#else
     int dr = js_toint16(J, 1);
 
     int type = _is_fat32(dr);
@@ -625,6 +756,7 @@ static void f_IsFAT32(js_State *J) {
             js_error(J, "Can't determine drive type.");
             break;
     }
+#endif
 }
 
 /**
@@ -634,6 +766,9 @@ static void f_IsFAT32(js_State *J) {
  * @param J VM state.
  */
 static void f_IsRAMDisk(js_State *J) {
+#if LINUX == 1
+    js_error(J, "Can't determine drive type.");
+#else
     int dr = js_toint16(J, 1);
 
     int type = _is_ram_drive(dr);
@@ -649,6 +784,7 @@ static void f_IsRAMDisk(js_State *J) {
             js_error(J, "Can't determine drive type.");
             break;
     }
+#endif
 }
 
 /**
@@ -658,6 +794,9 @@ static void f_IsRAMDisk(js_State *J) {
  * @param J VM state.
  */
 static void f_GetFSType(js_State *J) {
+#if LINUX == 1
+    js_error(J, "Can't determine drive type.");
+#else
     int dr = js_toint16(J, 1);
 
     char buffer[9];
@@ -667,6 +806,7 @@ static void f_GetFSType(js_State *J) {
     } else {
         js_error(J, "Can't determine fs type.");
     }
+#endif
 }
 
 /**
@@ -675,6 +815,9 @@ static void f_GetFSType(js_State *J) {
  * @param J VM state.
  */
 static void f_LoadLibrary(js_State *J) {
+#if LINUX == 1
+    LOGF("Library loading is not supported on Linux: %s\n", js_tostring(J, 1));
+#else
     int needed;
     char mod_name[LL_BUFFER_SIZE];
     char init_name[LL_BUFFER_SIZE];
@@ -689,7 +832,7 @@ static void f_LoadLibrary(js_State *J) {
 
     // bail out if this is already loaded
     if (jsh_check_library(modname)) {
-        js_error(J, "%s is already loaded!", modname);
+        DEBUGF("%s is already loaded!", modname);
         return;
     }
 
@@ -757,6 +900,7 @@ static void f_LoadLibrary(js_State *J) {
         js_error(J, "Out of memory while registering native library. System will be unstable now!");
         return;
     }
+#endif
 }
 
 /**
@@ -766,6 +910,7 @@ static void f_LoadLibrary(js_State *J) {
  */
 static void f_GetLoadedLibraries(js_State *J) {
     js_newarray(J);
+#if LINUX != 1
     if (jsh_loaded_libraries) {
         library_t *chain = jsh_loaded_libraries;
         int idx = 0;
@@ -776,6 +921,7 @@ static void f_GetLoadedLibraries(js_State *J) {
             chain = chain->next;
         }
     }
+#endif
 }
 
 /**
@@ -784,6 +930,69 @@ static void f_GetLoadedLibraries(js_State *J) {
  * @param J VM state.
  */
 static void f_FlushLog(js_State *J) { jsh_logflush(); }
+
+/**
+ * @brief get environment variable
+ *
+ * @param J VM state.
+ */
+static void f_GetEnv(js_State *J) {
+    const char *var = js_tostring(J, 1);
+
+    const char *val = getenv(var);
+
+    if (val) {
+        js_pushstring(J, val);
+    } else {
+        js_pushnull(J);
+    }
+}
+
+/**
+ * @brief call INT21, ah=0E, SetDrive()
+ *
+ * @param J VM state.
+ */
+static void f_SetDrive(js_State *J) {
+#if LINUX == 1
+    LOGF("SetDrive is not supported on Linux: %d\n", js_touint16(J, 1));
+#else
+    unsigned int num_drives;
+    _dos_setdrive(js_touint16(J, 1), &num_drives);
+    js_pushnumber(J, num_drives);
+#endif
+}
+
+/**
+ * @brief call INT21, ah=19, GetDrive()
+ *
+ * @param J VM state.
+ */
+static void f_GetDrive(js_State *J) {
+#if LINUX == 1
+    LOGF("GetDrive is not supported on Linux\n");
+    js_pushnull(J);
+#else
+    unsigned int drive;
+    _dos_getdrive(&drive);
+    js_pushnumber(J, drive);
+#endif
+}
+
+/**
+ * @brief canonicalizes the input path
+ *
+ * @param J VM state.
+ */
+static void f_RealPath(js_State *J) {
+    char newpath[PATH_MAX];
+#if WINDOWS == 1
+    _fullpath(newpath, js_tostring(J, 1), sizeof(newpath-1));
+#else
+    realpath(js_tostring(J, 1), newpath);
+#endif
+    js_pushstring(J, newpath);
+}
 
 /**
  * @brief print to logfile with newline.
@@ -838,31 +1047,30 @@ static void f_Debug(js_State *J) {
     js_pushundefined(J);
 }
 
-/**
- * @brief quit jSH.
- * Quit()
- *
- * @param J the JS context.
- */
-static void f_Quit(js_State *J) {
-    int code = 0;
-    if (js_isnumber(J, 1)) {
-        code = js_touint16(J, 1);
-    }
-    pctimer_exit();
-    exit(code);
+static void f_Sound(js_State *J) {
+#if LINUX != 1
+    sound(js_toint32(J, 1));
+#endif
 }
 
-static void f_Sound(js_State *J) { sound(js_toint32(J, 1)); }
-
-static void f_NoSound(js_State *J) { nosound(); }
+static void f_NoSound(js_State *J) {
+#if LINUX != 1
+    nosound();
+#endif
+}
 
 /**
  * @brief set CTRL-C/CTRL-BREAK handling.
  *
  * @param J the JS context.
  */
-static void f_CtrlBreak(js_State *J) { __djgpp_set_ctrl_c(js_toboolean(J, 1) ? 1 : 0); }
+static void f_CtrlBreak(js_State *J) {
+#if LINUX == 1
+    js_error(J, "Not implemented");
+#else
+    __djgpp_set_ctrl_c(js_toboolean(J, 1) ? 1 : 0);
+#endif
+}
 
 /***********************
 ** exported functions **
@@ -883,9 +1091,13 @@ void init_funcs(js_State *J, int argc, char **argv, int args) {
     js_setglobal(J, "global");
 
     PROPDEF_N(J, JSH_VERSION, "JSH_VERSION");
-
+#if LINUX == 1
+    PROPDEF_B(J, true, "LFN_SUPPORTED");  // global: LFN is supported
+    PROPDEF_B(J, true, "LINUX");          // global: we are running on Linux
+#else
     PROPDEF_B(J, _USE_LFN, "LFN_SUPPORTED");  // global: LFN is supported
     PROPDEF_B(J, false, "LINUX");             // global: we are running on DOS
+#endif
 
     // global: command line arguments
     js_newarray(J);
@@ -896,6 +1108,28 @@ void init_funcs(js_State *J, int argc, char **argv, int args) {
         idx++;
     }
     js_setglobal(J, "ARGS");
+
+    // // set current text encoding
+    // char *text_encoding;
+    // switch (get_uformat()) {
+    //     case U_ASCII:
+    //         text_encoding = "ASCII";
+    //         break;
+    //     case U_ASCII_CP:
+    //         text_encoding = "ASCII_CP";
+    //         break;
+    //     case U_UTF8:
+    //         text_encoding = "UTF8";
+    //         break;
+    //     case U_UNICODE:
+    //         text_encoding = "UNICODE";
+    //         break;
+    //     default:
+    //         text_encoding = "UNKNOWN";
+    //         break;
+    // }
+    // PROPDEF_S(J, text_encoding, "DOJS_ENCODING");
+    // DEBUGF("DOJS_ENCODING=%s\n", text_encoding);
 
     // define global functions
     NFUNCDEF(J, DirExists, 1);
@@ -915,6 +1149,7 @@ void init_funcs(js_State *J, int argc, char **argv, int args) {
 
     NFUNCDEF(J, Print, 0);
     NFUNCDEF(J, Println, 0);
+    NFUNCDEF(J, Quit, 1);
     NFUNCDEF(J, Gc, 1);
     NFUNCDEF(J, MemoryInfo, 0);
     NFUNCDEF(J, Sleep, 1);
@@ -939,8 +1174,9 @@ void init_funcs(js_State *J, int argc, char **argv, int args) {
     // jSH only
     NFUNCDEF(J, Debug, 0);
     NFUNCDEF(J, Debugln, 0);
-    NFUNCDEF(J, Quit, 1);
     NFUNCDEF(J, CtrlBreak, 1);
     NFUNCDEF(J, NoSound, 0);
     NFUNCDEF(J, Sound, 1);
+
+    DEBUGF("%s DONE\n", __PRETTY_FUNCTION__);
 }

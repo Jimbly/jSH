@@ -349,7 +349,7 @@ static int zip_archive_extract(mz_zip_archive *zip_archive, const char *dir,
       err = ZIP_EINVENTNAME;
       goto out;
     }
-#if defined(_MSC_VER)
+#if defined(_MSC_VER) || WINDOWS == 1
     strncpy_s(&path[dirlen], MAX_PATH - dirlen, info.m_filename,
               MAX_PATH - dirlen);
 #else

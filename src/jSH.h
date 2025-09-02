@@ -23,6 +23,23 @@ SOFTWARE.
 #ifndef __JSH_H__
 #define __JSH_H__
 
+#if WINDOWS == 1
+  #define WIN32_LEAN_AND_MEAN
+  #include <windows.h>
+  // These are in allegro headers on DOjS
+  #include <io.h>
+  #include <fcntl.h>
+  #include <direct.h>
+  #include <malloc.h>
+  #include <errno.h>
+  #include <limits.h>
+  #include <stdarg.h>
+  #include <stddef.h>
+  #include <stdlib.h>
+  #include <time.h>
+  #include <string.h>
+#endif
+
 #include <mujs.h>
 #include <stdbool.h>
 #include <stdio.h>
@@ -41,12 +58,33 @@ SOFTWARE.
 #define JSBOOT_VAR "JSBOOTPATH"  //!< global variable containing the prefix for JSBOOT
 
 #define LOGFILE "JSLOG.TXT"  //!< filename for logfile
+#define LOGSTREAM logfile  //!< output stream for logging on DOS
 
+#if LINUX == 1
+#define JS_ELINUX(j) js_error(j, "Not supported on Linux")  //!< use always the same message when not supported
+#endif
 #define JS_ENOMEM(j) js_error(j, "Out of memory")                     //!< use always the same message when memory runs out
 #define JS_ENOARR(j) js_error(j, "Array expected")                    //!< use always the same message when array expected
 #define JS_EIDX(j, idx) js_error(j, "Index out of bound (%ld)", idx)  //!< use always the same message when array index out of bound
 
 #define SYSTICK_RESOLUTION 1  //!< 1ms resolution
+//! check if parameter has a certain usertype
+#define JS_CHECKTYPE(j, idx, type)            \
+    {                                         \
+        if (!js_isuserdata(j, idx, type)) {   \
+            js_error(j, "%s expected", type); \
+            return;                           \
+        }                                     \
+    }
+
+//! check if a number is positive
+#define JS_CHECKPOS(j, num)                                                 \
+    {                                                                       \
+        if (num < 0) {                                                      \
+            js_error(j, "Non negative number expected: %ld", (int32_t)num); \
+            return;                                                         \
+        }                                                                   \
+    }
 
 /***********
 ** macros **
@@ -94,32 +132,36 @@ SOFTWARE.
     }
 
 //! printf-style write info to logfile/console
-#define LOGF(str, ...)                                \
-    if (logfile) {                                    \
-        fprintf(logfile, SYSINFO str, ##__VA_ARGS__); \
-        fflush(logfile);                              \
+#define LOGF(str, ...)                                  \
+    if (LOGSTREAM) {                                    \
+        fprintf(LOGSTREAM, SYSINFO str, ##__VA_ARGS__); \
+        fflush(LOGSTREAM);                              \
     }
 
 //! write info to logfile/console
-#define LOG(str)                     \
-    if (logfile) {                   \
-        fputs(SYSINFO str, logfile); \
-        fflush(logfile);             \
+#define LOG(str)                       \
+    if (LOGSTREAM) {                   \
+        fputs(SYSINFO str, LOGSTREAM); \
+        fflush(LOGSTREAM);             \
     }
 
 #ifdef DEBUG_ENABLED
 //! printf-style debug message to logfile/console
-#define DEBUGF(str, ...)                                 \
-    if (logfile) {                                       \
-        fprintf(logfile, "[DEBUG] " str, ##__VA_ARGS__); \
-        fflush(logfile);                                 \
+#define DEBUGF(str, ...)                                   \
+    if (LOGSTREAM) {                                       \
+        fprintf(LOGSTREAM, "[DEBUG] " str, ##__VA_ARGS__); \
+        printf("[DEBUG] " str, ##__VA_ARGS__);             \
+        fflush(LOGSTREAM);                                 \
+        fflush(stdout);                                    \
     }
 
 //! print debug message to logfile/console
-#define DEBUG(str)                      \
-    if (logfile) {                      \
-        fputs("[DEBUG] " str, logfile); \
-        fflush(logfile);                \
+#define DEBUG(str)                        \
+    if (LOGSTREAM) {                      \
+        fputs("[DEBUG] " str, LOGSTREAM); \
+        puts("[DEBUG] " str);             \
+        fflush(LOGSTREAM);                \
+        fflush(stdout);                   \
     }
 #else
 #define DEBUGF(str, ...)
@@ -132,47 +174,36 @@ SOFTWARE.
 #define NEW_OBJECT_PREP(j)
 #endif
 
-//! check if parameter has a certain usertype
-#define JS_CHECKTYPE(j, idx, type)            \
-    {                                         \
-        if (!js_isuserdata(j, idx, type)) {   \
-            js_error(j, "%s expected", type); \
-            return;                           \
-        }                                     \
-    }
 
-//! check if a number is positive
-#define JS_CHECKPOS(j, num)                                                 \
-    {                                                                       \
-        if (num < 0) {                                                      \
-            js_error(j, "Non negative number expected: %ld", (int32_t)num); \
-            return;                                                         \
-        }                                                                   \
-    }
-
-/*****************
-** struct/types **
-*****************/
+/************
+** structs **
+************/
+#if LINUX != 1
 typedef struct __library_t {
     struct __library_t *next;
     const char *name;
     void *handle;
     void (*shutdown)(void);
 } library_t;
+#endif
 
 /*********************
 ** global variables **
 *********************/
 extern FILE *logfile;       //!< file for log output.
 extern char *logfile_name;  //!< name of the logfile
+#if LINUX != 1
 extern library_t *jsh_loaded_libraries;
+#endif
 extern bool no_tcpip;  //!< command line option
 
 /***********************
 ** exported functions **
 ***********************/
+#if LINUX != 1
 extern bool jsh_register_library(const char *name, void *handle, void (*shutdown)(void));
 extern bool jsh_check_library(const char *name);
+#endif
 extern int jsh_do_file(js_State *J, const char *fname);
 extern void jsh_logflush(void);
 extern bool jsh_file_exists(const char *filename);

@@ -21,9 +21,44 @@ SOFTWARE.
 */
 
 #include <conio.h>
+#if LINUX != 1
 #include <pc.h>
+#endif
 
 #include "jsconio.h"
+
+#if LINUX == 1
+#if WINDOWS == 1
+    #define cgets _cgets
+    #define cputs _cputs
+#endif
+
+static void f_Unimplemented(js_State *J) {
+    js_error(J, "Not implemented");
+}
+#define f_SetCursorType f_Unimplemented
+#define f_GotoXY f_Unimplemented
+#define f_LowVideo f_Unimplemented
+#define f_HighVideo f_Unimplemented
+#define f_BlinkVideo f_Unimplemented
+#define f_IntenseVideo f_Unimplemented
+#define f_ScreenVisualBell f_Unimplemented
+#define f_ScreenCols f_Unimplemented
+#define f_ScreenRows f_Unimplemented
+#define f_WhereX f_Unimplemented
+#define f_WhereY f_Unimplemented
+#define f_TextMode f_Unimplemented
+#define f_TextColor f_Unimplemented
+#define f_TextBackground f_Unimplemented
+#define f_ClearEol f_Unimplemented
+#define f_ClearScreen f_Unimplemented
+#define f_DeleteLine f_Unimplemented
+#define f_InsertLine f_Unimplemented
+#define f_EnableScrolling f_Unimplemented
+
+#endif
+
+#if LINUX != 1
 
 static void f_SetCursorType(js_State *J) {
     int ct = js_toint16(J, 1);
@@ -77,6 +112,10 @@ static void f_ClearScreen(js_State *J) { clrscr(); }
 static void f_DeleteLine(js_State *J) { delline(); }
 static void f_InsertLine(js_State *J) { insline(); }
 
+static void f_EnableScrolling(js_State *J) { _wscroll = js_toboolean(J, 1); }
+
+#endif
+
 static void f_CGets(js_State *J) {
     char buff[260];
     buff[0] = 255;
@@ -120,13 +159,15 @@ static void f_AsciiCharDef(js_State *J) {
     js_pushstring(J, buff);
 }
 
-static void f_EnableScrolling(js_State *J) { _wscroll = js_toboolean(J, 1); }
-
 static void f_GetXKey(js_State *J) {
     while (!kbhit()) {
         ;
     }
+    #if WINDOWS == 1
+    js_pushnumber(J, getch());
+    #else
     js_pushnumber(J, getxkey());
+    #endif
 }
 
 static void f_KbHit(js_State *J) { js_pushboolean(J, kbhit()); }
@@ -142,6 +183,7 @@ static void f_KbHit(js_State *J) { js_pushboolean(J, kbhit()); }
 void init_conio(js_State *J) {
     DEBUGF("%s\n", __PRETTY_FUNCTION__);
 
+#if LINUX != 1
     // colors
     PROPDEF_N(J, BLACK, "BLACK");
     PROPDEF_N(J, BLUE, "BLUE");
@@ -173,6 +215,7 @@ void init_conio(js_State *J) {
     PROPDEF_N(J, C80, "C80");
     PROPDEF_N(J, MONO, "MONO");
     PROPDEF_N(J, C4350, "C4350");
+#endif
 
     // define global functions
     NFUNCDEF(J, TextColor, 1);

@@ -1,83 +1,93 @@
 ###
-# Makefile for cross compiling jSH for FreeDOS/MS-DOS
-# All compilation was done with DJGPP 7.2.0 built from https://github.com/andrewwutw/build-djgpp
+# Makefile for cross compiling jSH for Win32
 ###
 
 # subdirs
 THIRDPARTY	= 3rdparty/
+PLUGINS = plugins
 MUJS		= $(THIRDPARTY)/mujs-1.0.5
-DZCOMMDIR	= $(THIRDPARTY)/dzcomm
 KUBAZIP		= $(THIRDPARTY)/zip-0.2.3
 ZLIB		= $(THIRDPARTY)/zlib-1.3.1
-PCTIMER     = $(THIRDPARTY)/pctimer
 INI			= $(THIRDPARTY)/ini-20220806/src
-WATT32		= $(THIRDPARTY)/Watt-32
 CURL		= $(THIRDPARTY)/curl-8.11.0
 MBEDTLS		= $(THIRDPARTY)/mbedtls-3.6.2
 
+NOTCP = 1 # Not set up at all
+
 JSDOC_TEMPLATES ?= $(shell npm root)/better-docs $(shell npm root -g)/better-docs
 
-LIB_DZCOMM	= $(DZCOMMDIR)/lib/djgpp/libdzcom.a
 LIB_MUJS	= $(MUJS)/build/release/libmujs.a
-LIB_WATT	= $(WATT32)/lib/libwatt.a
 LIB_Z		= $(ZLIB)/libz.a
 LIB_MBEDTLS = $(MBEDTLS)/library/libmbedtls.a
 LIB_CURL	= $(CURL)/libcurl.a
 
 # compiler
-CDEF		= -DGC_BEFORE_MALLOC #-DDEBUG_ENABLED #-DMEMDEBUG 
+SQLITE_CFLAGS	= \
+	-DSQLITE_THREADSAFE=0 \
+	-DSQLITE_DEFAULT_MEMSTATUS=0 \
+	-DSQLITE_MAX_MMAP_SIZE=0 \
+	-DSQLITE_OMIT_WAL=1 \
+	-DSQLITE_OMIT_LOAD_EXTENSION=1 \
+	-DSQLITE_ENABLE_8_3_NAMES=2 \
+	-DSQLITE_ENABLE_LOCKING_STYLE=0
+
+CDEF     = -DLINUX=1 -DWINDOWS=1 -D__LINUX__ -DCURL_STATICLIB -DHTTP_ONLY -D_WIN32_WINNT=0x400 $(SQLITE_CFLAGS) -DGC_BEFORE_MALLOC
 ifdef NOTCP
 	CDEF += -DNOTCP
 endif
-CFLAGS		= -MMD -Wall -std=gnu99 -Os -march=i386 -mtune=i586 -ffast-math $(INCLUDES) -fgnu89-inline -Wmissing-prototypes $(CDEF)
+CFLAGS   = -MMD -Wall -Wno-format -std=gnu99 -O2 -fomit-frame-pointer $(INCLUDES) -fgnu89-inline -Wmissing-prototypes $(CDEF)
 INCLUDES	= \
 	-I$(realpath $(MUJS)) \
-	-I$(realpath $(DZCOMMDIR))/include \
 	-I$(realpath $(KUBAZIP))/src \
+	-I$(realpath $(KUBAZIP))/src/linux \
 	-I$(realpath $(ZLIB)) \
-	-I$(realpath $(PCTIMER)) \
 	-I$(realpath $(INI))/
 
 ifndef NOTCP
 	INCLUDES += \
-		-I$(realpath $(WATT32))/inc \
 		-I$(realpath $(MBEDTLS))/include \
 		-I$(realpath $(MBEDTLS))/library \
 		-I$(realpath $(CURL))/include
 endif
 
-INCLUDES += -I$(realpath ./src/)
+INCLUDES += -I$(realpath ./src/) \
+	-I$(realpath ./src/linux)
 
 # linker
-LIBS		= -lmujs -lm -lemu -ldzcom
+LIBS    = -lmujs -lm -lz -lkernel32 -luser32 -Wl,-Bdynamic -lwinmm
 ifndef NOTCP
-	LIBS += -lwatt
+	LIBS += -lcurl -lws2_32 -lmbedtls -lmbedx509 -lmbedcrypto
 endif
-LDFLAGS		= -L$(MUJS)/build/release -L$(DZCOMMDIR)/lib/djgpp
+
+LDFLAGS  = -s \
+	-L$(MUJS)/build/release \
+	-L$(ZLIB)
 ifndef NOTCP
-	LDFLAGS		+= -L$(WATT32)/lib
+	LDFLAGS		+= -L$(CURL)/lib \
+		-L$(MBEDTLS)/library
 endif
 
 # output
-EXE				= JSH.EXE
-RELZIP			= jsh.zip
+EXE				= JSH-W32.EXE
+RELZIP			= Win32_jsh.zip
 
 # dirs/files
 JSHPATH			= $(realpath .)
 BUILDDIR		= build
 DOCDIR			= doc/html
-DXE_TEMPLATE	= dxetemplate.txt
-DXE_EXPORTS		= src/dexport.c
 
-CROSS=i586-pc-msdosdjgpp
-CROSS_PLATFORM=i586-pc-msdosdjgpp-
+## compiler and binutils
+CROSS=i486-w64-mingw32
+CROSS_PLATFORM=$(CROSS)-
 CC=$(CROSS_PLATFORM)gcc
+CXX=$(CROSS_PLATFORM)g++
 AR=$(CROSS_PLATFORM)ar
-LD=$(CROSS_PLATFORM)ld
+LD=$(CROSS_PLATFORM)gcc
 STRIP=$(CROSS_PLATFORM)strip
 RANLIB=$(CROSS_PLATFORM)ranlib
-DXE3GEN = dxe3gen
-DXE3RES = dxe3res
+RC=$(CROSS_PLATFORM)windres
+DXINC=$(MINGWDIR)/$(CROSS)/include
+DXLIB=$(MINGWDIR)/$(CROSS)/lib
 export
 
 ## other tools used in Makefile
@@ -103,83 +113,77 @@ FONTCONV	= GrxFntConv
 NPM_INSTALL = npm install -g
 
 PARTS= \
-	$(BUILDDIR)/vgm.o \
-	$(BUILDDIR)/zip.o \
-	$(BUILDDIR)/pctimer/gccint8.o \
+	$(BUILDDIR)/zip/src/zip.o \
 	$(BUILDDIR)/file.o \
 	$(BUILDDIR)/funcs.o \
 	$(BUILDDIR)/jsconio.o \
 	$(BUILDDIR)/zipfile.o \
 	$(BUILDDIR)/socket.o \
-	$(BUILDDIR)/lowlevel.o \
 	$(BUILDDIR)/jSH.o \
 	$(BUILDDIR)/intarray.o \
 	$(BUILDDIR)/bytearray.o \
 	$(BUILDDIR)/util.o \
-	$(BUILDDIR)/screen.o \
 	$(BUILDDIR)/inifile.o \
-	$(BUILDDIR)/ini/ini.o \
-	$(BUILDDIR)/dexport.o
+	$(BUILDDIR)/ini/ini.o
 ifndef NOTCP
-	PARTS += $(BUILDDIR)/watt.o
+	PARTS += $(BUILDDIR)/curl.o
 endif
 
-DXE_DIRS := $(wildcard plugins/*.dxelib)
-
-TCP_TARGETS := libwatt32 libcurl
-TCP_CLEAN_TARGETS := wattclean mbedtlsclean curlclean
+TCP_TARGETS := libcurl
+TCP_CLEAN_TARGETS := mbedtlsclean curlclean
 
 ifdef NOTCP
-	DXE_DIRS := $(filter-out \
-		plugins/genpdf.dxelib \
-		plugins/curl.dxelib \
-		plugins/ipx.dxelib \
-		plugins/neural.dxelib \
-		plugins/sqlite.dxelib, $(DXE_DIRS))
 	TCP_TARGETS :=
 	TCP_CLEAN_TARGETS :=
 endif
-all: init libmujs dzcomm libz $(TCP_TARGETS) $(EXE) $(DXE_DIRS) JSBOOT.ZIP
 
-dzcomm: $(LIB_DZCOMM)
-$(LIB_DZCOMM):
-	$(MAKE) -C $(DZCOMMDIR) lib/djgpp/libdzcom.a
+all: $(EXE) JSBOOT.ZIP
+
+prereqs: Makefile init libmujs $(TCP_TARGETS)
 
 libmujs: $(LIB_MUJS)
 $(LIB_MUJS):
-	$(MAKE) -C $(MUJS) build/release/libmujs.a
+	$(MAKE) $(MPARA) -C $(MUJS) build/release/libmujs.a WINDOWS=1
 
 libcurl: $(LIB_CURL)
-$(LIB_CURL): $(LIB_MBEDTLS) $(LIB_Z)
-	$(MAKE) $(MPARA) -C $(CURL)/lib -f Makefile.mk CFG=-zlib-mbedtls-watt TRIPLET=i586-pc-msdosdjgpp WATT_ROOT=$(WATT32)
+$(LIB_CURL): libmbedtls libz
+	$(MAKE) $(MPARA) -C $(CURL)/lib -f Makefile.mk CFG=-zlib-mbedtls TRIPLET=$(CROSS)
 
 libmbedtls: $(LIB_MBEDTLS)
 $(LIB_MBEDTLS):
 	$(MAKE) $(MPARA) -C $(MBEDTLS) -f Makefile lib
 
-libwatt32: $(LIB_WATT)
-$(LIB_WATT):
-	DJ_PREFIX=$(dir $(shell which $(CC))) $(MAKE) $(MPARA) -C $(WATT32)/src -f djgpp.mak
-
 libz: $(LIB_Z)
 $(LIB_Z):
 	$(MAKE) $(MPARA) -C $(ZLIB) -f Makefile.dojs
+	# $(CPPRG) $(ZLIB)/zlib1.dll .
 
-$(EXE): $(PARTS)
-	$(CC) $(LDFLAGS) -o $@ $^ $(LIBS)
-	$(STRIP) $@
+$(EXE): prereqs $(PARTS)
+	$(CC) $(LDFLAGS) -o $@ $(PARTS) $(LIBS)
+	# $(STRIP) $@
 
-$(BUILDDIR)/%.o: src/%.c Makefile
+$(BUILDDIR)/%.o: src/%.c
 	$(CC) $(CFLAGS) -c $< -o $@
 
-$(BUILDDIR)/pctimer/%.o: $(PCTIMER)/%.c Makefile
+# $(BUILDDIR)/%.o: plugins/sqlite.dxelib/%.c prereqs
+# 	$(CC) $(CFLAGS) -c $< -o $@
+
+# $(BUILDDIR)/%.o: plugins/curl.dxelib/%.c prereqs
+# 	$(CC) $(CFLAGS) -c $< -o $@
+
+# $(BUILDDIR)/%.o: plugins/neural.dxelib/%.c prereqs
+# 	$(CC) $(CFLAGS) -c $< -o $@
+
+# $(BUILDDIR)/%.o: plugins/genpdf.dxelib/%.c prereqs
+# 	$(CC) $(CFLAGS) -c $< -o $@
+
+$(BUILDDIR)/zip/src/%.o: $(KUBAZIP)/src/%.c prereqs
 	$(CC) $(CFLAGS) -c $< -o $@
 
-$(BUILDDIR)/%.o: $(KUBAZIP)/src/%.c Makefile
+$(BUILDDIR)/ini/%.o: $(INI)/%.c prereqs
 	$(CC) $(CFLAGS) -c $< -o $@
 
-$(BUILDDIR)/ini/%.o: $(INI)/%.c Makefile
-	$(CC) $(CFLAGS) -c $< -o $@
+
 
 $(DXE_DIRS):
 	$(MAKE) -C $@
@@ -203,22 +207,13 @@ doc:
 	for i in $(JSDOC_TEMPLATES); do [ -d $$i ] && cd doc && $(JSDOCPRG) --verbose -t $$i -c jsdoc.conf.json -d ../$(DOCDIR) && break; done
 
 init:
-	$(MKDIRPRG) -p $(BUILDDIR) $(BUILDDIR)/zip/src $(BUILDDIR)/pctimer $(BUILDDIR)/ini
+	$(MKDIRPRG) -p $(BUILDDIR) $(BUILDDIR)/zip/src $(BUILDDIR)/ini $(BUILDDIR)/linux $(BUILDDIR)/PDFGen-master/
 	# make sure compile time is always updated
-	$(RMPRG) -f $(BUILDDIR)/jSH.o
+	#$(RMPRG) -f $(BUILDDIR)/jSH.o
 
-clean:
-	$(RMPRG) -rf $(BUILDDIR)/
-	$(RMPRG) -f $(PARTS) $(EXE) $(ZIP) JSLOG.TXT JSBOOT.ZIP CACERT.PEM
-	for dir in $(DXE_DIRS); do \
-		$(MAKE) -C $$dir -f Makefile $@; \
-	done
-
-distclean: clean jsclean dzclean dxeclean muclean zclean $(TCP_CLEAN_TARGETS)
+distclean: clean jsclean dxeclean muclean zclean $(TCP_CLEAN_TARGETS)
 	$(RMPRG) -rf $(DOCDIR) TEST.TXT JSLOG.TXT *.dxe
-
-dzclean:
-	$(MAKE) -C $(DZCOMMDIR) clean
+	rm -f *.dll
 
 jsclean:
 	$(MAKE) -C $(MUJS) clean
@@ -237,13 +232,15 @@ apclean:
 
 mbedtlsclean:
 	$(MAKE) -C $(MBEDTLS) -f Makefile clean
+	$(FINDPRG) $(MBEDTLS) -name \*.d -exec rm {} +
 
 curlclean:
-	$(MAKE) $(MPARA) -C $(CURL)/lib -f Makefile.mk CFG=-zlib-mbedtls-watt TRIPLET=i586-pc-msdosdjgpp WATT_ROOT=$(WATT32) clean
+	$(MAKE) $(MPARA) -C $(CURL)/lib -f Makefile.mk CFG=-zlib-mbedtls TRIPLET=$(CROSS) clean
 	$(RMPRG) -f $(CURL)/lib/libcurl.a
 
-wattclean:
-	$(MAKE) -C $(WATT32)/src -f djgpp.mak clean
+clean:
+	rm -rf $(BUILDDIR)/
+	rm -f $(EXE) $(ZIP) JSLOG.TXT JSBOOT.ZIP cacert.pem
 
 fixnewlines:
 	$(FINDPRG) . -iname *.sh -exec dos2unix -v \{\} \;
@@ -255,7 +252,7 @@ node_install:
 	$(NPM_INSTALL) @babel/preset-env
 	$(NPM_INSTALL) @babel/plugin-transform-exponentiation-operator
 
-.PHONY: clean distclean init doc $(DXE_DIRS)
+.PHONY: clean distclean init
 
 DEPS := $(wildcard $(BUILDDIR)/*.d)
 ifneq ($(DEPS),)

@@ -27,7 +27,9 @@ SOFTWARE.
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
+#if WINDOWS!=1
 #include <dlfcn.h>
+#endif
 
 #include "lowlevel.h"
 #ifndef NOTCP
@@ -42,7 +44,9 @@ SOFTWARE.
 #include "intarray.h"
 #include "bytearray.h"
 #include "screen.h"
+#if LINUX!=1
 #include "gccint8.h"
+#endif
 #include "inifile.h"
 #include "vgm.h"
 
@@ -54,7 +58,9 @@ char *logfile_name;
 
 const char *lastError;
 
+#if LINUX != 1
 library_t *jsh_loaded_libraries = NULL;
+#endif
 
 #ifdef NOTCP
 bool no_tcpip = true;
@@ -99,6 +105,7 @@ static void Report(js_State *J, const char *message) {
     LOGF("%s\n", message);
 }
 
+#if LINUX != 1
 /**
  * @brief shutdown all registered libraries
  */
@@ -125,6 +132,7 @@ static void jsh_shutdown_libraries() {
         }
     }
 }
+#endif
 
 /**
  * @brief load and parse a javascript file from ZIP.
@@ -194,7 +202,6 @@ static int run_script(char *script, bool debug, int argc, char *argv[], int idx)
     init_funcs(J, argc, argv, idx);
     init_file(J);
     init_conio(J);
-    init_lowlevel(J);
     if (!no_tcpip) {
         #ifndef NOTCP
         init_watt(J);
@@ -204,9 +211,12 @@ static int run_script(char *script, bool debug, int argc, char *argv[], int idx)
     init_zipfile(J);
     init_intarray(J);
     init_bytearray(J);
-    init_screen(J);
     init_inifile(J);
+#if LINUX != 1
+    init_lowlevel(J);
+    init_screen(J);
     init_vgm(J);
+#endif
 
     // do some more init from JS
     if (jsh_file_exists(JSBOOT_ZIP)) {
@@ -235,8 +245,10 @@ static int run_script(char *script, bool debug, int argc, char *argv[], int idx)
     jsh_do_file(J, script);
     LOG("jSH Shutdown...\n");
     js_freestate(J);
+#if LINUX != 1
     shutdown_vgm();
     jsh_shutdown_libraries();
+#endif
     if (logfile) {
         fclose(logfile);
     }
@@ -300,6 +312,7 @@ int jsh_do_file(js_State *J, const char *fname) {
     }
 }
 
+#if LINUX != 1
 /**
  * @brief register a library.
  *
@@ -359,6 +372,7 @@ bool jsh_check_library(const char *name) {
     }
     return false;
 }
+#endif
 
 /**
  * @brief cloe and re-open logfile to flush() all data and make the logfile accessible from Javascript.
@@ -393,7 +407,7 @@ void jsh_logflush() {
 int main(int argc, char **argv) {
     char *script = NULL;
     bool debug = false;
-    bool do_logfile = true;
+    bool do_logfile = false;
     int opt;
 
     // check parameters
@@ -432,9 +446,13 @@ int main(int argc, char **argv) {
         logfile_name = NULL;
     }
 
+#if LINUX != 1
     pctimer_init(1000 / SYSTICK_RESOLUTION);
+#endif
     int ret = run_script(script, debug, argc, argv, optind);
+#if LINUX != 1
     pctimer_exit();
+#endif
 
     exit(ret);
     return ret;

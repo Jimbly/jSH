@@ -23,7 +23,6 @@ SOFTWARE.
 #ifndef __FUNCS_H__
 #define __FUNCS_H__
 
-#include <mujs.h>
 #include "jSH.h"
 
 /************
