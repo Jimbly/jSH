@@ -23,7 +23,9 @@ SOFTWARE.
 #include "funcs.h"
 
 #include <dirent.h>
+#if LINUX != 1
 #include <dpmi.h>
+#endif
 #include <errno.h>
 #include <mujs.h>
 //#include <pc.h>
@@ -40,7 +42,9 @@ SOFTWARE.
 #include <timeapi.h>
 #endif
 
+#if LINUX != 1
 #include <sys/exceptn.h>
+#endif
 #include <fcntl.h>
 #include "util.h"
 #include "socket.h"

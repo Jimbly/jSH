@@ -54,7 +54,7 @@ INCLUDES += -I$(realpath ./src/) \
 	-I$(realpath ./src/linux)
 
 # linker
-LIBS    = -lmujs -lm -lz -lkernel32 -luser32 -Wl,-Bdynamic -lwinmm
+LIBS    = -lmujs -lm -lkernel32 -luser32 -Wl,-Bdynamic -lwinmm
 ifndef NOTCP
 	LIBS += -lcurl -lws2_32 -lmbedtls -lmbedx509 -lmbedcrypto
 endif
