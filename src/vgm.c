@@ -22,17 +22,29 @@ SOFTWARE.
 VGM specs are at https://vgmrips.net/wiki/VGM_Specification
 */
 
+#include <pc.h>
+#include <stdlib.h>
+#include <string.h>
+#include <go32.h>
+#include <dpmi.h>
+
 #include "jSH.h"
 #include "socket.h"
 #include "zipfile.h"
 #include "util.h"
 #include "vgm.h"
+#include "gccint8.h"
 
 #define VGM_RESOLUTION 44100
 #define VGM_FACTOR 44
-#define VGM_TIMER_FREQ BPS_TO_TIMER(VGM_RESOLUTION / VGM_FACTOR)
 #define VGM_OPL_ADDR 0x388
 #define VGM_OPL_DATA 0x389
+
+#define END_OF_FUNCTION(x)     \
+    static void x##_end(void); \
+    static void x##_end() {}
+#define LOCK_VARIABLE(x) _go32_dpmi_lock_data((void *)&x, sizeof(x))
+#define LOCK_FUNCTION(x) _go32_dpmi_lock_code(x, (long)x##_end - (long)x)
 
 // #define VGM_DUMP
 
@@ -197,7 +209,7 @@ static bool vgm_opl_detect() {
     A = inp(VGM_OPL_ADDR);
     vgm_opl_write(2, 0xFF);
     vgm_opl_write(4, 0x21);
-    rest_callback(80, tick_socket);
+    pctimer_sleep(80);
     B = inp(VGM_OPL_ADDR);
     vgm_opl_write(4, 0x60);
     vgm_opl_write(4, 0x80);
@@ -269,22 +281,16 @@ static void f_VgmPlay(js_State *J) {
         vgm_pos = 0;
         vgm_wait = 0;
 
-        if (install_int_ex(vgm_int, VGM_TIMER_FREQ) != 0) {
-            js_error(J, "Failed to install VGM timer");
-        } else {
-            // LOGF("VGM playback started\n");
-        }
+        pctimer_set_hook(vgm_int);
     }
 }
 
 static void f_VgmPos(js_State *J) { js_pushnumber(J, vgm_pos); }
 
 static void f_VgmStop(js_State *J) {
-    remove_int(vgm_int);
+    pctimer_set_hook(NULL);
 
     vgm_opl_reset();
-
-    // LOGF("VGM playback stopped\n");
 }
 
 static void f_VgmDiscard(js_State *J) {
@@ -301,11 +307,6 @@ static void f_VgmDiscard(js_State *J) {
 }
 
 static void f_VgmLoad(js_State *J) {
-    // if (DOjS.midi_available) {
-    //     js_error(J, "VGM OPL2 does only work when Allegro FM sound is disabled (-f on command line or in DOjS.INI)");
-    //     return;
-    // }
-
     if (!vgm_opl_detect()) {
         js_error(J, "OPL2 not detected!");
         return;
@@ -372,23 +373,23 @@ void init_vgm(js_State *J) {
 
     LOGF("VGM playback resolution is %dHz\n", (VGM_RESOLUTION / VGM_FACTOR));
 
-    LOCK_VARIABLE(vgm_pos);
-    LOCK_VARIABLE(vgm_data);
-    LOCK_VARIABLE(vgm_wait);
-    LOCK_FUNCTION(vgm_int);
-    LOCK_FUNCTION(vgm_opl_write);
-
     NFUNCDEF(J, VgmPos, 0);
     NFUNCDEF(J, VgmPlay, 0);
     NFUNCDEF(J, VgmStop, 0);
     NFUNCDEF(J, VgmLoad, 1);
     NFUNCDEF(J, VgmDiscard, 0);
 
+    // lock down
+    LOCK_FUNCTION(vgm_int);
+    LOCK_FUNCTION(vgm_opl_write);
+    LOCK_VARIABLE(vgm_pos);
+    LOCK_VARIABLE(vgm_data);
+    LOCK_VARIABLE(vgm_wait);
+
     DEBUGF("%s DONE\n", __PRETTY_FUNCTION__);
 }
 
 /**
- * @brief shutdown VGM subsystem.
  */
 void shutdown_vgm() {
     DEBUGF("%s\n", __PRETTY_FUNCTION__);
