@@ -23,16 +23,16 @@ SOFTWARE.
 #include "funcs.h"
 
 #include <dirent.h>
-//#include <dpmi.h>
-//#include <errno.h>
+#include <dpmi.h>
+#include <errno.h>
 #include <mujs.h>
 //#include <pc.h>
 #include <stdio.h>
-//#include <stdlib.h>
+#include <stdlib.h>
 //#include <string.h>
 #include <sys/stat.h>
 #include <time.h>
-//#include <unistd.h>
+#include <unistd.h>
 #if WINDOWS != 1
 #include <dlfcn.h>
 #endif
@@ -40,8 +40,8 @@ SOFTWARE.
 #include <timeapi.h>
 #endif
 
-//#include <sys/exceptn.h>
-//#include <fcntl.h>
+#include <sys/exceptn.h>
+#include <fcntl.h>
 #include "util.h"
 #include "socket.h"
 #include "zipfile.h"
@@ -323,8 +323,8 @@ static void f_Stat(js_State *J) {
  * @param J the JS context.
  */
 static void f_Println(js_State *J) {
+    int i, top = js_gettop(J);
     if (LOGSTREAM) {
-        int i, top = js_gettop(J);
         for (i = 1; i < top; ++i) {
             const char *s = js_tostring(J, i);
             if (i > 1) {
@@ -334,8 +334,6 @@ static void f_Println(js_State *J) {
         }
         putc('\n', LOGSTREAM);
     }
-#if LINUX == 1
-    int i, top = js_gettop(J);
     for (i = 1; i < top; ++i) {
         const char *s = js_tostring(J, i);
         if (i > 1) {
@@ -343,7 +341,6 @@ static void f_Println(js_State *J) {
         }
         puts(s);
     }
-#endif
     js_pushundefined(J);
 }
 
@@ -354,8 +351,8 @@ static void f_Println(js_State *J) {
  * @param J the JS context.
  */
 static void f_Print(js_State *J) {
+    int i, top = js_gettop(J);
     if (LOGSTREAM) {
-        int i, top = js_gettop(J);
         for (i = 1; i < top; ++i) {
             const char *s = js_tostring(J, i);
             if (i > 1) {
@@ -364,8 +361,6 @@ static void f_Print(js_State *J) {
             fputs(s, LOGSTREAM);
         }
     }
-#if LINUX == 1
-    int i, top = js_gettop(J);
     for (i = 1; i < top; ++i) {
         const char *s = js_tostring(J, i);
         if (i > 1) {
@@ -373,7 +368,6 @@ static void f_Print(js_State *J) {
         }
         puts(s);
     }
-#endif
     js_pushundefined(J);
 }
 
@@ -388,9 +382,9 @@ static void f_Quit(js_State *J) {
     if (js_isnumber(J, 1)) {
         code = js_touint16(J, 1);
     }
-	#if LINUX != 1
+#if LINUX != 1
     pctimer_exit();
-	#endif
+#endif
     exit(code);
 }
 
@@ -458,11 +452,11 @@ static void f_MemoryInfo(js_State *J) {
  */
 static void f_Sleep(js_State *J) {
     int ms = js_toint32(J, 1);
-    #if LINUX == 1
+#if LINUX == 1
     Sleep(ms);
-    #else
+#else
     pctimer_sleep(ms);
-    #endif
+#endif
 }
 
 /**
@@ -472,11 +466,11 @@ static void f_Sleep(js_State *J) {
  * @param J the JS context.
  */
 static void f_MsecTime(js_State *J) {
-    #if WINDOWS == 1
+#if WINDOWS == 1
     js_pushnumber(J, timeGetTime());
-    #else
+#else
     js_pushnumber(J, pctimer_get_ticks() * (1000 / SYSTICK_RESOLUTION));
-    #endif
+#endif
 }
 
 /**
