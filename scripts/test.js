@@ -56,7 +56,7 @@ for (var i = 0; i < 3; i++) {
     var fname = "tst." + i;
     var f = new File(fname, FILE.WRITE);
     f.WriteLine("File " + i);
-    Println(f.name);
+    Println(fname);
     f.Close();
     f = null;
     Gc();
